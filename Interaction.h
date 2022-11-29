@@ -1,57 +1,49 @@
 //
-//  Interaction.h - main class to communicate with user
-//  BINS_file_analysis
+//  interaction.h
+//  BINS_file_analysis_3.0
 //
-//  Created by Den Fedorov on 25.08.2022.
+//  Created by Denis Fedorov on 25.11.2022.
 //
 
 #pragma once
-#include <iostream>
-#include <string>
+#include <map>
+#include <set>
+#include <memory>
 #include <vector>
+#include <string>
+#include <string_view>
+#include <filesystem>
+#include "math.h"
 
-namespace fl
+namespace FL
 {
-	class Math;
-	class File;
-
-	// reading from .dat or .txt files
-	enum class Mode
-	{
-		DAT = 0,
-		TXT
-	};
-
-	// menus to display
-	enum class Menu
-	{
-		MAIN,
-		READ,
-		RESULT,
-		RESULT_LIST,
-		REMOVE,
-		WRITE
-	};
-
+	class Menu;
 	class Interaction
 	{
+		friend class Short;
+		friend class Long;
+		friend class Convert;
+		friend class Write;
+		friend class Help;
 	public:
 		Interaction();
 		~Interaction();
-		auto get_mode() const -> int;                      // get the active format
-		auto set_mode() -> void;                           // set format of file to read
-		auto set_index(char sign) -> void;                 // set index of added file to view or remove
-		auto get_size() const->std::size_t;                // get informantion on how many files added
-		auto check(const std::string & s) const -> int;    // user's input check
-		auto menu(Menu menu) -> void;                      // main method to display menus
-		auto remove(int n) -> void;                        // remove a certain or all files
-		auto message(const std::string & s) -> void;       // a message to display to user
-		auto read(const std::string & s) -> void;          // method to add new file/files
-		auto write(const std::string & s) -> void;         // method to write analysis to .txt
+		void run() noexcept;
 	private:
-		Mode _mode;                                        // reading format
-		std::size_t _index;                                // index of added files
-		mutable std::string _msg;                          // message to display
-		std::vector<Math> _files;                          // vector of files
+		void check_directory(std::string_view path) noexcept;
+		void add(std::set<std::string>::iterator path) noexcept;
+		void add(const std::filesystem::path & path) noexcept;
+	private:
+		enum class Format
+		{
+			DAT,
+			TXT
+		};
+		Format _format;
+		std::unique_ptr<Menu> _menu;
+		std::set<std::string> _paths;
+		std::vector<std::string> _errors;
+		std::vector<std::string> _converted_files;
+		std::multimap<std::string, Result> _files;
 	};
 }

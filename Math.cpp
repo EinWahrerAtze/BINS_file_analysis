@@ -1,95 +1,101 @@
 //
-//  Math.cpp
-//  BINS_file_analysis
+//  math.cpp
+//  BINS_file_analysis_3.0
 //
-//  Created by Den Fedorov on 27.08.2022.
+//  Created by Den Fedorov on 25.11.2022.
 //
 
-#pragma once
-#include "Math.h"
-#include "File.h"
+#include <cmath>
+#include <numeric>
+#include <algorithm>
+#include "math.h"
+#include "file.h"
 
-fl::Math::Math(const std::string & filename, const Read & file)
+namespace FL
 {
-
-	_filename = filename;
-	// find the first '\' from the end end remove all the characters from beginning to found '\'
-	_filename.erase(_filename.begin(), (std::find(_filename.rbegin(), _filename.rend(), '\\')).base());
-	// duration of file equals to vector's last value
-	_duration = static_cast<unsigned int>(file._count.back());
-	// find index of value '600'
-	_gc_index = static_cast<unsigned int>(std::find(file._count.begin(), file._count.end(), 600) - file._count.begin());
-	// convert heading, roll and pitch
-	convert(_thdg, file._thdg);
-	convert(_roll, file._roll);
-	convert(_pitch, file._pitch);
-
-	_heading = static_cast<unsigned int>(roundf(file._thdg[_gc_index]));
-
-	if (_heading == 360)
+	Math::Math() : _result {} {}
+	
+	Result Math::calculation(const std::vector<Row> & file)
 	{
-		_heading = 0;
+		std::size_t index {find_index(file, &Row::count)};
+		if (index == 0)
+		{
+			throw std::invalid_argument {"Отсутствует выставка: "};
+		}
+		_result.thdg = convert(file.at(index).thdg);
+		_result.roll = convert(file.at(index).roll);
+		_result.pitch = convert(file.at(index).pitch);
+		_result.heading = static_cast<unsigned int>(std::roundf(file.at(index).thdg));
+		if (_result.heading == 360)
+		{
+			_result.heading = 0;
+		}
+		_result.duration = file.back().count;
+		_result.deviation_X = deviation(file, &Row::gyro_X);
+		_result.deviation_Y = deviation(file, &Row::gyro_Y);
+		_result.deviation_Z = deviation(file, &Row::gyro_Z);
+		_result.temperature_X = summ<int>(file, &Row::gyro_X_temperature) / static_cast<int>(file.size()) / 100;
+		_result.temperature_Y = summ<int>(file, &Row::gyro_Y_temperature) / static_cast<int>(file.size()) / 100;
+		_result.temperature_Z = summ<int>(file, &Row::gyro_Z_temperature) / static_cast<int>(file.size()) / 100;
+		return _result;
 	}
-	// calculate standart deviation
-	_X_deviation = deviation(file._gyro_X);
-	_Y_deviation = deviation(file._gyro_Y);
-	_Z_deviation = deviation(file._gyro_Z);
-	// average gyroscope temperature
-	_X_tempreture = static_cast<int>(std::reduce(file._t_gyro_X.begin(), file._t_gyro_X.end(), 0.0f) / _duration / 100);
-	_Y_tempreture = static_cast<int>(std::reduce(file._t_gyro_Y.begin(), file._t_gyro_Y.end(), 0.0f) / _duration / 100);
-	_Z_tempreture = static_cast<int>(std::reduce(file._t_gyro_Z.begin(), file._t_gyro_Z.end(), 0.0f) / _duration / 100);
-}
-
-fl::Math::~Math()
-{
-};
-
-auto fl::Math::convert(Result & res, const std::vector<float> & v) -> void
-{
-	// modf returns integer (degree) and fractional (minutes) values
-	res._minutes = (std::modf(v.at(_gc_index), &res._degrees)) * 60;
-	// same here, but integer part goes to minutes, fractional to seconds
-	res._seconds = (std::modf(res._minutes, &res._minutes)) * 60;
-	res._seconds = roundf(res._seconds);
-	// change sign if values are negative
-	if (v[_gc_index] < 0)
+	
+	Angle Math::convert(float value) noexcept
 	{
-		res._minutes = -res._minutes;
-		res._seconds = -res._seconds;
+		Angle angle {};
+		angle.minute = std::modf(value, &angle.degree) * 60;
+		angle.second = std::modf(angle.minute, &angle.minute) * 60;
+		angle.second = std::roundf(angle.second);
+		if (value < 0.0f)
+		{
+			angle.minute = -angle.minute;
+			angle.second = -angle.second;
+		}
+		float fraction_value {std::roundf(value) - value};
+		if (fraction_value < 0.0f)
+		{
+			fraction_value = -fraction_value;
+		}
+		angle.minute_error = std::modf(fraction_value, &angle.degree_error) * 60;
+		angle.second_error = std::modf(angle.minute_error, &angle.minute_error) * 60;
+		angle.second_error = std::roundf(angle.second_error);
+		return angle;
 	}
-
-	float fraction_value = roundf(v[_gc_index]) - v[_gc_index];
-
-	if (fraction_value < 0)
+	
+	std::size_t Math::find_index(const std::vector<Row> & file, const unsigned int Row:: * member) const noexcept
 	{
-		fraction_value = -fraction_value;
+		for (auto i {file.cbegin()}; i != file.cend(); ++i)
+		{
+			if ((*i).*member == _gc_time)
+			{
+				return std::distance(file.cbegin(), i);
+			}
+		}
+		return 0;
 	}
-
-	res._minutes_error = (std::modf(fraction_value, &res._degrees_error)) * 60;
-	res._seconds_error = (std::modf(res._minutes_error, &res._minutes_error)) * 60;
-	res._seconds_error = roundf(res._seconds_error);
-}
-
-auto fl::Math::deviation(const std::vector<float> & v) -> float
-{
-	int index{ 0 };
-	// calculate real duration of file
-	std::size_t real_duration = v.size();
-	// average value of vector
-	float average{ std::reduce(v.begin(), v.end(), 0.0f) / real_duration };
-	// new vector to store difference
-	std::vector<float> difference(real_duration);
-	// simple lamdba to calculate some math
-	auto lambda{ [&average, &v, &index](float & d) -> void
+	
+	float Math::deviation(const std::vector<Row> & file, const float Row:: * member) const noexcept
 	{
-		d = v[index] - average;
-		d *= d;
-		++index;
-	} };
-
-	std::for_each(difference.begin(), difference.end(), lambda);
-	average = std::reduce(difference.begin(), difference.end(), 0.0f);
-	average /= real_duration - 1;
-
-	return sqrtf(average);
+		float average {summ<float>(file, member) / file.size()};
+		std::vector<float> difference;
+		difference.reserve(file.size());
+		for (auto i {file.cbegin()}; i != file.cend(); ++i)
+		{
+			difference.push_back(static_cast<float>(std::pow((*i).*member - average, 2)));
+		}
+		average = std::reduce(difference.cbegin(), difference.cend(), 0.0f);
+		average /= file.size() - 1;
+		return std::sqrt(average);
+	}
+	
+	template <typename T>
+	T Math::summ(const std::vector<Row> & file, const T Row:: * member) const noexcept
+	{
+		T sum {};
+		for (auto i = file.cbegin(); i != file.cend(); ++i)
+		{
+			sum += (*i).*member;
+		}
+		return sum;
+	}
 }

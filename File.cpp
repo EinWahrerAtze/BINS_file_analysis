@@ -1,282 +1,297 @@
 //
-//  File.cpp
-//  BINS_file_analysis
+//  file.cpp
+//  BINS_file_analysis_3.0
 //
-//  Created by Den Fedorov on 27.08.2022.
+//  Created by Denis Fedorov on 25.11.2022.
 //
 
-#pragma once
-#include "File.h"
-#include "Math.h"
+#include <stdexcept>
+#include <format>
+#include "file.h"
+#include "math.h"
 
-namespace fl
+namespace FL
 {
-	fl::Read::Read(const std::string & filename, Mode mode)
+	File::File(std::string_view path) : _path(path) {}
+	
+	Load::Load(std::string_view path) : File(path) {}
+	
+	DAT::DAT(std::string_view path) : Load(path)
 	{
-		// reserve some memory to avoid allocations
-		_count.reserve(5000);
-		_thdg.reserve(5000);
-		_roll.reserve(5000);
-		_pitch.reserve(5000);
-		_gyro_X.reserve(5000);
-		_gyro_Y.reserve(5000);
-		_gyro_Z.reserve(5000);
-		_t_gyro_X.reserve(5000);
-		_t_gyro_Y.reserve(5000);
-		_t_gyro_Z.reserve(5000);
-
-		if (mode == Mode::DAT)
+		_fin.open(_path, std::ios_base::binary | std::ios_base::in);
+		if (!_fin.is_open())
 		{
-			_fin.open(filename, std::ios_base::in | std::ios_base::binary);
-
-			if (!_fin.is_open())
-			{
-				throw std::runtime_error("Не удалось открыть " + filename + '!');
-			}
-		}
-		else
-		{
-			_fin.open(filename);
-
-			if (!_fin.is_open())
-			{
-				throw std::runtime_error("Не удалось открыть " + filename + '!');
-			}
+			throw std::runtime_error {std::format("Не удаётся открыть \"{}\"", _path.string())};
 		}
 	}
-
-	fl::Read::~Read()
+	
+	void DAT::find_start()
 	{
-		_fin.close();
-	}
-
-	auto fl::Read::read(Mode mode) -> void
-	{
-		if (mode == Mode::DAT)
+		unsigned int count {};
+		while (!_fin.eof())
 		{
-			unsigned int count{ 0 };
-			float pitch{ 0.0f };
-			float roll{ 0.0f };
-			float thdg{ 0.0f };
-			float gyro_X{ 0.0f };
-			float gyro_Y{ 0.0f };
-			float gyro_Z{ 0.0f };
-			int t_gyro_X{ 0 };
-			int t_gyro_Y{ 0 };
-			int t_gyro_Z{ 0 };
-
-			int n{ 8428 };                                      // set the input buffer pointer to skip the first 59 rows of file
-
-			while (_fin.good())
+			_fin.read(reinterpret_cast<char*>(&count), 2);
+			if (count < _start)
 			{
-				_fin.seekg(n, std::ios_base::beg);
-				_fin.read((char *)&count, 2);
-
-				_count.push_back(count);
-
-				_fin.seekg(n += 12, std::ios_base::beg);
-				_fin.read((char *)&pitch, 4);					// 12-16
-				_pitch.push_back(pitch);
-				_fin.read((char *)&roll, 4);					// 16-20
-				_roll.push_back(roll);
-
-				_fin.seekg(n += 16, std::ios_base::beg);
-				_fin.read((char *)&thdg, 4);					// 28-32
-				_thdg.push_back(thdg);
-
-				_fin.seekg(n += 52, std::ios_base::beg);
-				_fin.read((char *)&gyro_X, 4);					// 80-84
-				_gyro_X.push_back(gyro_X);
-				_fin.read((char *)&gyro_Y, 4);					// 84-88
-				_gyro_Y.push_back(gyro_Y);
-				_fin.read((char *)&gyro_Z, 4);					// 88-92
-				_gyro_Z.push_back(gyro_Z);
-
-				_fin.seekg(n += 72, std::ios_base::beg);
-				_fin.read((char *)&t_gyro_X, 4);				// 152-156
-				_t_gyro_X.push_back(t_gyro_X);
-				_fin.read((char *)&t_gyro_Y, 4);				// 156-160
-				_t_gyro_Y.push_back(t_gyro_Y);
-				_fin.read((char *)&t_gyro_Z, 4);				// 160-164
-				_t_gyro_Z.push_back(t_gyro_Z);
-
-				n += 149;
+				_fin.seekg(_fin.tellg() += 299);
 			}
-
-			// for some reason reading does not stop at the end of file and adds additional row to the end
-			_count.pop_back();
-			_pitch.pop_back();
-			_roll.pop_back();
-			_thdg.pop_back();
-			_gyro_X.pop_back();
-			_gyro_Y.pop_back();
-			_gyro_Z.pop_back();
-			_t_gyro_X.pop_back();
-			_t_gyro_X.pop_back();
-			_t_gyro_X.pop_back();
-		}
-		else
-		{
-			float tmp{ 0.0f };                   // temporary variable to read numbers to
-			int column_num{ 0 };                 // variable to count columns in file
-
-			while (_fin >> tmp)                  // to skip the first 59 seconds of file
+			else
 			{
-				if (tmp < 60)
-				{
-					_fin.ignore(10000, '\n');
-				}
-				else
-				{
-					break;
-				}
-			}
-
-			// set the input pointer back to 2 bytes to read "count"
-			_fin.seekg(_fin.tellg() -= 2);
-
-			while (_fin.good() && _fin >> tmp)
-			{
-				switch (column_num)
-				{
-					case 0: _count.push_back(static_cast<unsigned int>(tmp));
-						break;
-					case 4: _pitch.push_back(tmp);
-						break;
-					case 5: _roll.push_back(tmp);
-						break;
-					case 8: _thdg.push_back(tmp);
-						break;
-					case 21: _gyro_X.push_back(tmp);
-						break;
-					case 22: _gyro_Y.push_back(tmp);
-						break;
-					case 23: _gyro_Z.push_back(tmp);
-						break;
-					case 39: _t_gyro_X.push_back(static_cast<int>(tmp));
-						break;
-					case 40: _t_gyro_Y.push_back(static_cast<int>(tmp));
-						break;
-					case 41: _t_gyro_Z.push_back(static_cast<int>(tmp));
-						_fin.ignore(10000, '\n');
-						break;
-				}
-
-				column_num == 41 ? column_num = 0 : ++column_num;
+				_fin.seekg(_fin.tellg() -= 2);
+				break;
 			}
 		}
-
-		// shrink all vectors to its actual sizes
-		_count.shrink_to_fit();
-		_pitch.shrink_to_fit();
-		_roll.shrink_to_fit();
-		_thdg.shrink_to_fit();
-		_gyro_X.shrink_to_fit();
-		_gyro_Y.shrink_to_fit();
-		_gyro_Z.shrink_to_fit();
-		_t_gyro_X.shrink_to_fit();
-		_t_gyro_Y.shrink_to_fit();
-		_t_gyro_Z.shrink_to_fit();
+		if (_fin.bad())
+		{
+			throw std::runtime_error {std::format("\"{}\" неподдерживаемая структура", _path.filename().string())};
+		}
 	}
-
-	fl::Write::Write(const std::string & filename)
+	
+	const std::vector<Row> & DAT::read()
 	{
-		_fout.open(filename);
-
+		Row row {};
+		while (_fin.good())
+		{
+			_fin.read(reinterpret_cast<char*>(&row.count), 2);
+			_fin.read(reinterpret_cast<char*>(&row.mode), 2);
+			_fin.read(reinterpret_cast<char*>(&row.system_time), 4);
+			_fin.read(reinterpret_cast<char*>(&row.mode_time), 4);
+			_fin.read(reinterpret_cast<char*>(&row.pitch), 4);
+			_fin.read(reinterpret_cast<char*>(&row.roll), 4);
+			_fin.read(reinterpret_cast<char*>(&row.heading), 4);
+			_fin.read(reinterpret_cast<char*>(&row.azimuth), 4);
+			_fin.read(reinterpret_cast<char*>(&row.thdg), 4);
+			_fin.read(reinterpret_cast<char*>(&row.latitude), 4);
+			_fin.read(reinterpret_cast<char*>(&row.longtitude), 4);
+			_fin.read(reinterpret_cast<char*>(&row.H), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Ve), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Vn), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Vu), 4);
+			_fin.read(reinterpret_cast<char*>(&row.dAt_X), 4);
+			_fin.read(reinterpret_cast<char*>(&row.dAt_Y), 4);
+			_fin.read(reinterpret_cast<char*>(&row.dAt_Z), 4);
+			_fin.read(reinterpret_cast<char*>(&row.dVt_X), 4);
+			_fin.read(reinterpret_cast<char*>(&row.dVt_Y), 4);
+			_fin.read(reinterpret_cast<char*>(&row.dVt_Z), 4);
+			_fin.read(reinterpret_cast<char*>(&row.gyro_X), 4);
+			_fin.read(reinterpret_cast<char*>(&row.gyro_Y), 4);
+			_fin.read(reinterpret_cast<char*>(&row.gyro_Z), 4);
+			_fin.read(reinterpret_cast<char*>(&row.acc_X), 4);
+			_fin.read(reinterpret_cast<char*>(&row.acc_Y), 4);
+			_fin.read(reinterpret_cast<char*>(&row.acc_Z), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Ucplc_X), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Ucplc_Y), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Ucplc_Z), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Uhfo_X), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Uhfo_Y), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Uhfo_Z), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Fout_X), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Fout_Y), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Fout_Z), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Fdith_X), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Fdith_Y), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Fdith_Z), 4);
+			_fin.read(reinterpret_cast<char*>(&row.gyro_X_temperature), 4);
+			_fin.read(reinterpret_cast<char*>(&row.gyro_Y_temperature), 4);
+			_fin.read(reinterpret_cast<char*>(&row.gyro_Z_temperature), 4);
+			_fin.read(reinterpret_cast<char*>(&row.acc_X_temperature), 4);
+			_fin.read(reinterpret_cast<char*>(&row.acc_Y_temperature), 4);
+			_fin.read(reinterpret_cast<char*>(&row.acc_Z_temperature), 4);
+			_fin.read(reinterpret_cast<char*>(&row.dpb_X_temperature), 4);
+			_fin.read(reinterpret_cast<char*>(&row.dpb_Y_temperature), 4);
+			_fin.read(reinterpret_cast<char*>(&row.dpb_Z_temperature), 4);
+			_fin.read(reinterpret_cast<char*>(&row.drift_X), 4);
+			_fin.read(reinterpret_cast<char*>(&row.drift_Y), 4);
+			_fin.read(reinterpret_cast<char*>(&row.drift_Z), 4);
+			_fin.read(reinterpret_cast<char*>(&row.faults), 2);
+			_fin.read(reinterpret_cast<char*>(&row.D12), 4);
+			_fin.read(reinterpret_cast<char*>(&row.D13), 4);
+			_fin.read(reinterpret_cast<char*>(&row.D21), 4);
+			_fin.read(reinterpret_cast<char*>(&row.D23), 4);
+			_fin.read(reinterpret_cast<char*>(&row.D31), 4);
+			_fin.read(reinterpret_cast<char*>(&row.D32), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Mg1), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Mg2), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Mg3), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Wo1), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Wo2), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Wo3), 4);
+			_fin.read(reinterpret_cast<char*>(&row.E12), 4);
+			_fin.read(reinterpret_cast<char*>(&row.E13), 4);
+			_fin.read(reinterpret_cast<char*>(&row.E21), 4);
+			_fin.read(reinterpret_cast<char*>(&row.E23), 4);
+			_fin.read(reinterpret_cast<char*>(&row.E31), 4);
+			_fin.read(reinterpret_cast<char*>(&row.E32), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Ma1), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Ma2), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Ma2), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Ao1), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Ao2), 4);
+			_fin.read(reinterpret_cast<char*>(&row.Ao3), 4);
+			_fin.read(reinterpret_cast<char*>(&row.reserve), 1);
+			_fin.read(reinterpret_cast<char*>(&row.crc8), 1);
+			_fin.read(reinterpret_cast<char*>(&row.error), 1);
+			_file.push_back(row);
+			if (_fin.bad())
+			{
+				throw std::runtime_error {std::format("\"{}\" неподдерживаемая структура", _path.filename().string())};
+			}
+		}
+		return _file;
+	}
+	
+	TXT::TXT(std::string_view path) : Load(path)
+	{
+		_fin.open(_path, std::ios_base::in);
+		if (!_fin.is_open())
+		{
+			throw std::runtime_error {std::format("Не удаётся открыть \"{}\"", _path.string())};
+		}
+	}
+	
+	void TXT::find_start()
+	{
+		unsigned int count {};
+		while (_fin >> count)
+		{
+			if (count < _start)
+			{
+				_fin.ignore(std::numeric_limits <std::streamsize>::max(), '\n');
+			}
+			else
+			{
+				_fin.seekg(_fin.tellg() -= 2);
+				break;
+			}
+		}
+		if (_fin.bad())
+		{
+			throw std::runtime_error {std::format("\"{}\" неподдерживаемая структура", _path.filename().string())};
+		}
+	}
+	
+	const std::vector<Row> & TXT::read()
+	{
+		Row row {};
+		while (_fin.good())
+		{
+			_fin >> row.count;
+			_fin >> row.mode;
+			_fin >> row.system_time;
+			_fin >> row.mode_time;
+			_fin >> row.pitch;
+			_fin >> row.heading;
+			_fin >> row.azimuth;
+			_fin >> row.thdg;
+			_fin >> row.latitude;
+			_fin >> row.longtitude;
+			_fin >> row.H;
+			_fin >> row.Ve >> row.Vn >> row.Vu;
+			_fin >> row.dAt_X >> row.dAt_Y >> row.dAt_Z;
+			_fin >> row.gyro_X >> row.gyro_Y >> row.gyro_Z;
+			_fin >> row.acc_X >> row.acc_Y >> row.acc_Z;
+			_fin >> row.Ucplc_X >> row.Ucplc_Y >> row.Ucplc_Z;
+			_fin >> row.Uhfo_X >> row.Uhfo_Y >> row.Uhfo_Z;
+			_fin >> row.Fout_X >> row.Fout_Y >> row.Fout_Z;
+			_fin >> row.gyro_X_temperature >> row.gyro_Y_temperature >> row.gyro_Z_temperature;
+			_fin >> row.acc_X_temperature >> row.acc_Y_temperature >> row.acc_Z_temperature;
+			_fin >> row.dpb_X_temperature >> row.dpb_Y_temperature >> row.dpb_Z_temperature;
+			_fin >> row.drift_X >> row.drift_Y >> row.drift_Z;
+			_fin >> row.faults;
+			_fin >> row.D12 >> row.D13 >> row.D21 >> row.D23 >> row.D31 >> row.D32;
+			_fin >> row.Mg1 >> row.Mg2 >> row.Mg3;
+			_fin >> row.Wo1 >> row.Wo2 >> row.Wo3;
+			_fin >> row.E12 >> row.E13 >> row.E21 >> row.E23 >> row.E31 >> row.E32;
+			_fin >> row.Ma1 >> row.Ma2 >> row.Ma3;
+			_fin >> row.Ao1 >> row.Ao2 >> row.Ao3;
+			_fin >> row.reserve;
+			_fin >> row.crc8;
+			_fin >> row.error;
+			_file.push_back(row);
+		}
+		if (_fin.bad())
+		{
+			throw std::runtime_error {std::format("\"{}\" неподдерживаемая структура", _path.filename().string())};
+		}
+		return _file;
+	}
+												  
+	Save::Save(std::string_view path) : File(path)
+	{
+		_fout.open(_path, std::ios_base::out);
 		if (!_fout.is_open())
 		{
-			throw std::runtime_error("Не удалось открыть файл " + filename + " для записи!");
+			throw std::runtime_error {std::format("Не удаётся открыть \"{}\"", _path.filename().string())};
 		}
-
-		// writing upper row first
-		_fout << std::right << std::setw(24);
-		_fout << "Выставка";
-		_fout << std::right << std::setw(18);
-		_fout << "Ошибка";
-		_fout << std::right << std::setw(15);
-		_fout << "СКО";
-		_fout << std::right << std::setw(10);
-		_fout << "°C\n";
-		_fout << "------------------------------------------------\n";
 	}
-
-	fl::Write::~Write()
+												  
+	void Save::write(const std::vector<Row> & file)
 	{
-		_fout.close();
+		for (const Row & row : file)
+		{
+			_fout << std::format("{}\t", row.count);
+			_fout << std::format("{}\t", row.mode);
+			_fout << std::format("{}\t", row.system_time);
+			_fout << std::format("{}\t", row.mode_time);
+			_fout << std::format("{: .5f}\t", row.pitch);
+			_fout << std::format("{: .5f}\t", row.roll);
+			_fout << std::format("{: .2f}\t", row.heading);
+			_fout << std::format("{:.5f}\t", row.azimuth);
+			_fout << std::format("{: .5f}\t", row.thdg);
+			_fout << std::format("{:.4f}\t", row.latitude);
+			_fout << std::format("{:.4f}\t", row.longtitude);
+			_fout << std::format("{:.2f}\t", row.H);
+			_fout << std::format("{: .5f}\t{: .5f}\t{: .5f}\t", row.Ve, row.Vn, row.Vu);
+			_fout << std::format("{: .5f}\t{: .5f}\t{: .5f}\t", row.dAt_X, row.dAt_Y, row.dAt_Z);
+			_fout << std::format("{: .5f}\t{: .5f}\t{: .5f}\t", row.dVt_X, row.dVt_Y, row.dVt_Z);
+			_fout << std::format("{: .5f}\t{: .5f}\t{: .5f}\t", row.gyro_X, row.gyro_Y, row.gyro_Z);
+			_fout << std::format("{: .5f}\t{: .5f}\t{: .5f}\t", row.acc_X, row.acc_Y, row.acc_Z);
+			_fout << std::format("{: .2f}\t{: .2f}\t{: .2f}\t", row.Ucplc_X, row.Ucplc_Y, row.Ucplc_Z);
+			_fout << std::format("{: .2f}\t{: .2f}\t{: .2f}\t", row.Uhfo_X, row.Uhfo_Y, row.Uhfo_Z);
+			_fout << std::format("{:.1f}\t{:.1f}\t{:.1f}\t", row.Fout_X, row.Fout_Y, row.Fout_Z);
+			_fout << std::format("{:.1f}\t{:.1f}\t{:.1f}\t", row.Fdith_X, row.Fdith_Y, row.Fdith_Z);
+			_fout << std::format("{}\t{}\t{}\t", row.gyro_X_temperature, row.gyro_Y_temperature, row.gyro_Z_temperature);
+			_fout << std::format("{}\t{}\t{}\t", row.acc_X_temperature, row.acc_Y_temperature, row.acc_Z_temperature);
+			_fout << std::format("{}\t{}\t{}\t", row.dpb_X_temperature, row.dpb_Y_temperature, row.dpb_Z_temperature);
+			_fout << std::format("{:.0f}\t{:.0f}\t{:.0f}\t", row.drift_X, row.drift_Y, row.drift_Z);
+			_fout << std::format("{}\t", row.faults);
+			_fout << std::format("{: .4f}\t{: .4f}\t{: .4f}\t{: .4f}\t{: .4f}\t{: .4f}\t", row.D12, row.D13, row.D21, row.D23, row.D31, row.D32);
+			_fout << std::format("{: .4f}\t{: .4f}\t{: .4f}\t", row.Mg1, row.Mg2, row.Mg3);
+			_fout << std::format("{: .4f}\t{: .4f}\t{: .4f}\t", row.Wo1, row.Wo2, row.Wo3);
+			_fout << std::format("{: .4f}\t{: .4f}\t{: .4f}\t{: .4f}\t{: .4f}\t{: .4f}\t", row.E12, row.E13, row.E21, row.E23, row.E31, row.E32);
+			_fout << std::format("{: .4f}\t{: .4f}\t{: .4f}\t", row.Ma1, row.Ma2, row.Ma3);
+			_fout << std::format("{: .4f}\t{: .4f}\t{: .4f}\t", row.Ao1, row.Ao2, row.Ao3);
+			_fout << std::format("{}\t", row.reserve);
+			_fout << std::format("{}\t", row.crc8);
+			_fout << std::format("{}\n", row.error);
+		}
+		if (_fout.bad())
+		{
+			throw std::runtime_error {std::format("Не удаётся записать \"{}\"", _path.filename().string())};
+		}
 	}
-
-	auto fl::Write::write(const Math & math) -> void
+												  
+	void Save::write(const std::multimap<std::string, Result> & results)
 	{
-		_fout << std::setfill(' ');
-		_fout.setf(std::ios_base::fixed);
-		_fout.precision(0);
-
-		_fout << "Курс:";
-		_fout << std::right << std::setw(5);
-		_fout << math._thdg._degrees << "°";
-		_fout << std::right << std::setw(2);
-		_fout << math._thdg._minutes << '\'';
-		_fout << std::right << std::setw(2);
-		_fout << math._thdg._seconds << '"';
-		_fout << std::right << std::setw(6);
-		_fout << math._thdg._degrees_error << "°";
-		_fout << std::right << std::setw(2);
-		_fout << math._thdg._minutes_error << '\'';
-		_fout << std::right << std::setw(2);
-		_fout << math._thdg._seconds_error << '"';
-		_fout << std::right << std::setw(4);
-		_fout << 'X';
-		_fout << std::right << std::setw(9);
-		_fout.precision(4);
-		_fout << math._X_deviation;
-		_fout << std::right << std::setw(5);
-		_fout.precision(0);
-		_fout << math._X_tempreture;
-
-		_fout << "\nКрен:";
-		_fout << std::right << std::setw(5);
-		_fout << math._roll._degrees << "°";
-		_fout << std::right << std::setw(2);
-		_fout << math._roll._minutes << '\'';
-		_fout << std::right << std::setw(2);
-		_fout << math._roll._seconds << '"';
-		_fout << std::right << std::setw(6);
-		_fout << math._roll._degrees_error << "°";
-		_fout << std::right << std::setw(2);
-		_fout << math._roll._minutes_error << '\'';
-		_fout << std::right << std::setw(2);
-		_fout << math._roll._seconds_error << '"';
-		_fout << std::right << std::setw(4);
-		_fout << 'Y';
-		_fout << std::right << std::setw(9);
-		_fout.precision(4);
-		_fout << math._Y_deviation;
-		_fout << std::right << std::setw(5);
-		_fout.precision(0);
-		_fout << math._Y_tempreture;
-
-		_fout << "\nТангаж:";
-		_fout << std::right << std::setw(3);
-		_fout << math._pitch._degrees << "°";
-		_fout << std::right << std::setw(2);
-		_fout << math._pitch._minutes << '\'';
-		_fout << std::right << std::setw(2);
-		_fout << math._pitch._seconds << '"';
-		_fout << std::right << std::setw(6);
-		_fout << math._pitch._degrees_error << "°";
-		_fout << std::right << std::setw(2);
-		_fout << math._pitch._minutes_error << '\'';
-		_fout << std::right << std::setw(2);
-		_fout << math._pitch._seconds_error << '"';
-		_fout << std::right << std::setw(4);
-		_fout << 'Z';
-		_fout << std::right << std::setw(9);
-		_fout.precision(4);
-		_fout << math._Y_deviation;
-		_fout << std::right << std::setw(5);
-		_fout.precision(0);
-		_fout << math._Z_tempreture << '\n';
-
-		_fout << "------------------------------------------------\n";
+		for (auto result {results.cbegin()}; result != results.cend(); ++result)
+		{
+			// filename
+			_fout << std::format("{:-<66}\n", result->first);
+			// first row
+			_fout << std::format("Heading:\t{}°\t", result->second.heading);
+			_fout << std::format("THdg:\t{}°{}'{}\"\t", result->second.thdg.degree, result->second.thdg.minute, result->second.thdg.second);
+			_fout << std::format("{}°{:0>2}'{:0>2}\"\t", result->second.thdg.degree_error, result->second.thdg.minute_error, result->second.thdg.second_error);
+			_fout << std::format("X\t{:.4f}\n", result->second.deviation_X);
+			// second row
+			_fout << std::format("Duration:\t{} s.\t", result->second.duration);
+			_fout << std::format("Roll:\t{}°{}'{}\"\t", result->second.roll.degree, result->second.roll.minute, result->second.roll.second);
+			_fout << std::format("{}°{:0>2}'{:0>2}\"\t", result->second.roll.degree_error, result->second.roll.minute_error, result->second.roll.second_error);
+			_fout << std::format("Y\t{:.4f}\n", result->second.deviation_Y);
+			// third row
+			_fout << std::format("Temperature:\t{}°C\t", (result->second.temperature_X + result->second.temperature_Y + result->second.temperature_Z) / 3);
+			_fout << std::format("Pitch:\t{}°{}'{}\"\t", result->second.pitch.degree, result->second.pitch.minute, result->second.pitch.second);
+			_fout << std::format("{}°{:0>2}'{:0>2}\"\t", result->second.pitch.degree_error, result->second.pitch.minute_error, result->second.pitch.second_error);
+			_fout << std::format("Z\t{:.4f}\n\n", result->second.deviation_Z);
+		}
 	}
 }
